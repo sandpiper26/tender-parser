@@ -88,8 +88,8 @@ def parse_document():
         text = "Неподдерживаемый формат файла"
     
     # Ограничиваем размер текста для Claude
-    if len(text) > 3000:
-        text = text[:3000] + "...[текст обрезан]"
+    if len(text) > 5000:
+        text = text[:5000] + "...[текст обрезан]"
     
     return jsonify({'text': text, 'filename': file.filename})
 
