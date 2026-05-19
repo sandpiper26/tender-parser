@@ -96,7 +96,36 @@ def parse_document():
 @app.route('/health', methods=['GET'])
 def health():
     return jsonify({'status': 'ok'})
-
+@app.route('/zakupki', methods=['GET'])
+def get_zakupki():
+    try:
+        import requests
+        keyword = request.args.get('keyword', 'чиллер')
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/html',
+            'Accept-Language': 'ru-RU,ru;q=0.9',
+        }
+        params = {
+            'searchString': keyword,
+            'fz44': 'on',
+            'fz223': 'on',
+            'morphology': 'on',
+            'sortBy': 'UPDATE_DATE',
+            'sortDirection': 'false',
+            'recordsPerPage': '_10',
+            'pageNumber': '1',
+            'format': 'json'
+        }
+        response = requests.get(
+            'https://zakupki.gov.ru/epz/order/extendedsearch/results.html',
+            headers=headers,
+            params=params,
+            timeout=30
+        )
+        return jsonify({'status': 'ok', 'data': response.text[:5000]})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
