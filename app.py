@@ -96,36 +96,85 @@ def parse_document():
 @app.route('/health', methods=['GET'])
 def health():
     return jsonify({'status': 'ok'})
+
 @app.route('/zakupki', methods=['GET'])
 def get_zakupki():
     try:
-        import requests
-        keyword = request.args.get('keyword', 'чиллер')
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/html',
-            'Accept-Language': 'ru-RU,ru;q=0.9',
-        }
-        params = {
-            'searchString': keyword,
-            'fz44': 'on',
-            'fz223': 'on',
-            'morphology': 'on',
-            'sortBy': 'UPDATE_DATE',
-            'sortDirection': 'false',
-            'recordsPerPage': '_10',
-            'pageNumber': '1',
-            'format': 'json'
-        }
-        response = requests.get(
-            'https://zakupki.gov.ru/epz/order/extendedsearch/results.html',
-            headers=headers,
-            params=params,
-            timeout=30
-        )
-        return jsonify({'status': 'ok', 'data': response.text[:5000]})
+        import ftplib
+        import zipfile
+        import xml.etree.ElementTree as ET
+
+        keyword = request.args.get('keyword', 'чиллер').lower()
+        region = request.args.get('region', 'Moskva')
+        results = []
+
+        ftp = ftplib.FTP('ftp.zakupki.gov.ru', timeout=30)
+        ftp.login('free', 'free')
+        ftp.cwd(f'/out/published/{region}/notifications/')
+
+        files = ftp.nlst()
+        zip_files = sorted([f for f in files if f.endswith('.zip')])
+
+        if not zip_files:
+            return jsonify({'error': 'Файлы не найдены', 'region': region}), 404
+
+        # Берём последний ZIP файл
+        last_file = zip_files[-1]
+
+        file_bytes = io.BytesIO()
+        ftp.retrbinary(f'RETR {last_file}', file_bytes.write)
+        ftp.quit()
+
+        file_bytes.seek(0)
+
+        # Распаковываем и ищем по ключевому слову
+        with zipfile.ZipFile(file_bytes) as z:
+            for name in z.namelist():
+                if name.endswith('.xml'):
+                    with z.open(name) as f:
+                        try:
+                            content = f.read().decode('utf-8', errors='ignore')
+                            if keyword in content.lower():
+                                # Парсим основные поля
+                                tree = ET.ElementTree(ET.fromstring(content))
+                                root = tree.getroot()
+                                ns = {'ns': root.tag.split('}')[0].strip('{')} if '}' in root.tag else {}
+
+                                def find_text(tag):
+                                    for elem in root.iter():
+                                        if elem.tag.split('}')[-1] == tag and elem.text:
+                                            return elem.text.strip()
+                                    return ''
+
+                                tender = {
+                                    'file': name,
+                                    'number': find_text('purchaseNumber') or find_text('notificationNumber'),
+                                    'name': find_text('purchaseObjectInfo') or find_text('subject'),
+                                    'price': find_text('maxPrice') or find_text('price'),
+                                    'customer': find_text('fullName') or find_text('shortName'),
+                                    'deadline': find_text('biddingDeadLine') or find_text('submissionCloseDateTime'),
+                                    'publish_date': find_text('publishDTInEIS') or find_text('createDT'),
+                                    'url': f"https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber={find_text('purchaseNumber')}"
+                                }
+                                results.append(tender)
+                        except Exception:
+                            continue
+
+        return jsonify({
+            'status': 'ok',
+            'keyword': keyword,
+            'region': region,
+            'source_file': last_file,
+            'count': len(results),
+            'results': results[:10]
+        })
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
+
+
+
