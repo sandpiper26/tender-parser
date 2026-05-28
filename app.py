@@ -171,7 +171,43 @@ def get_zakupki():
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+@app.route('/b2b/login', methods=['POST'])
+def b2b_login():
+    try:
+        import requests as req
+        data = request.get_json()
+        login = data.get('login')
+        password = data.get('password')
+        resp = req.post(
+            'https://www.b2b-center.ru/integration/xml/User.Login/',
+            data={'login': login, 'password': password},
+            timeout=15
+        )
+        import re
+        match = re.search(r'<access_token>([^<]+)</access_token>', resp.text)
+        if match:
+            return jsonify({'access_token': match.group(1)})
+        err = re.search(r'<message>([^<]+)</message>', resp.text)
+        return jsonify({'error': err.group(1) if err else 'Ошибка авторизации'}), 401
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
+
+@app.route('/b2b/request', methods=['GET'])
+def b2b_request():
+    try:
+        import requests as req
+        method = request.args.get('method')
+        token = request.args.get('access_token')
+        if not method or not token:
+            return jsonify({'error': 'method и access_token обязательны'}), 400
+        # Пробрасываем все остальные параметры
+        params = {k: v for k, v in request.args.items()}
+        url = f'https://www.b2b-center.ru/integration/json/{method}/'
+        resp = req.get(url, params=params, timeout=15)
+        return jsonify(resp.json())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
