@@ -1,8 +1,10 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import io
 import os
 
 app = Flask(__name__)
+CORS(app)
 
 def extract_text_from_pdf(file_bytes):
     try:
@@ -15,7 +17,6 @@ def extract_text_from_pdf(file_bytes):
                     text += page_text + "\n"
         if text.strip():
             return text
-        # Если текст пустой - скан, используем OCR
         return extract_text_ocr(file_bytes)
     except Exception as e:
         return f"Ошибка PDF: {str(e)}"
@@ -40,7 +41,6 @@ def extract_text_from_docx(file_bytes):
         for para in doc.paragraphs:
             if para.text.strip():
                 text += para.text + "\n"
-        # Также извлекаем текст из таблиц
         for table in doc.tables:
             for row in table.rows:
                 for cell in row.cells:
@@ -73,11 +73,11 @@ def extract_text_from_xlsx(file_bytes):
 def parse_document():
     if 'file' not in request.files:
         return jsonify({'error': 'Файл не найден'}), 400
-    
+
     file = request.files['file']
     filename = file.filename.lower()
     file_bytes = file.read()
-    
+
     if filename.endswith('.pdf'):
         text = extract_text_from_pdf(file_bytes)
     elif filename.endswith('.docx'):
@@ -86,11 +86,10 @@ def parse_document():
         text = extract_text_from_xlsx(file_bytes)
     else:
         text = "Неподдерживаемый формат файла"
-    
-    # Ограничиваем размер текста для Claude
+
     if len(text) > 5000:
         text = text[:5000] + "...[текст обрезан]"
-    
+
     return jsonify({'text': text, 'filename': file.filename})
 
 @app.route('/health', methods=['GET'])
@@ -118,7 +117,6 @@ def get_zakupki():
         if not zip_files:
             return jsonify({'error': 'Файлы не найдены', 'region': region}), 404
 
-        # Берём последний ZIP файл
         last_file = zip_files[-1]
 
         file_bytes = io.BytesIO()
@@ -127,7 +125,6 @@ def get_zakupki():
 
         file_bytes.seek(0)
 
-        # Распаковываем и ищем по ключевому слову
         with zipfile.ZipFile(file_bytes) as z:
             for name in z.namelist():
                 if name.endswith('.xml'):
@@ -135,10 +132,8 @@ def get_zakupki():
                         try:
                             content = f.read().decode('utf-8', errors='ignore')
                             if keyword in content.lower():
-                                # Парсим основные поля
                                 tree = ET.ElementTree(ET.fromstring(content))
                                 root = tree.getroot()
-                                ns = {'ns': root.tag.split('}')[0].strip('{')} if '}' in root.tag else {}
 
                                 def find_text(tag):
                                     for elem in root.iter():
@@ -171,6 +166,7 @@ def get_zakupki():
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
 @app.route('/b2b/login', methods=['POST'])
 def b2b_login():
     try:
@@ -192,7 +188,6 @@ def b2b_login():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-
 @app.route('/b2b/request', methods=['GET'])
 def b2b_request():
     try:
@@ -201,16 +196,13 @@ def b2b_request():
         token = request.args.get('access_token')
         if not method or not token:
             return jsonify({'error': 'method и access_token обязательны'}), 400
-        # Пробрасываем все остальные параметры
         params = {k: v for k, v in request.args.items()}
         url = f'https://www.b2b-center.ru/integration/json/{method}/'
         resp = req.get(url, params=params, timeout=15)
         return jsonify(resp.json())
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
-
-
-
