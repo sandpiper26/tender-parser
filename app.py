@@ -1,10 +1,12 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from kontur import kontur_bp
 import io
 import os
 
 app = Flask(__name__)
 CORS(app)
+app.register_blueprint(kontur_bp)
 
 def extract_text_from_pdf(file_bytes):
     try:
